@@ -8,7 +8,7 @@ license=('GPL3')
 depends=('gtk3')
 makedepends=('gcc' 'make' 'pkgconf')
 source=("notebook-$pkgver.tar.gz")
-md5sums=('SKIP')  # Replace with actual checksum later
+md5sums=('SKIP')
 
 build() {
     gcc -Wall -o notebook main.cpp `pkg-config --cflags --libs gtk+-3.0`
