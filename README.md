@@ -25,8 +25,6 @@ These are required for running Notebook
 Here's how to go about installing Notebook
 
 **From Source**
-1. Copy main.cpp
-2. Compile with GCC
-```
-gcc main.cpp -o notebook `pkg-config --cflags --libs gtk+-3.0`
-```
+1. Download source code as zip archive
+2. Unzip archive
+3. Run makepkg
