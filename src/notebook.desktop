@@ -1,0 +1,7 @@
+#!/usr/bin/env xdg-open
+[Desktop Entry]
+Name=Notebook
+Exec=notebook
+Icon=notebook
+Type=Application
+Categories=Utility;TextEditor;
