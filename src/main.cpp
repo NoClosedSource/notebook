@@ -1,5 +1,6 @@
 #include <gtk/gtk.h>
 #include <gdk/gdk.h>
+#include <time.h>
 
 int current_font_size = 12;
 int min_font_size = 1;
@@ -17,6 +18,15 @@ typedef struct {
     gdouble vscroll;
     gdouble hscroll;
 } ScrollState;
+
+const gchar *date_formats[] = {
+    "%m/%d/%y",             // 06/19/25
+    "%m/%d/%Y",             // 06/19/2025
+    "%Y-%m-%d",             // 2025-06-19
+    "%d/%m/%Y",             // 19/06/2025
+    "%B %d, %Y",            // June 19, 2025
+    "%A, %B %d, %Y",        // Thursday, June 19, 2025
+};
 
 GtkWidget *window;
 GtkWidget *text_view;
@@ -58,20 +68,22 @@ int current_match_index = -1;
 
 // helper function
 int clamp(int x, int min, int max) {
-    if (x < min) 
+    if (x < min)
         return min;
 
-    if (x > max) 
+    if (x > max)
         return max;
 
     return x;
 }
 
+// create new file
 void new_file(GtkWidget *widget, gpointer data) {
     GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(text_view));
     gtk_text_buffer_set_text(buffer, "", -1);
 }
 
+// prompt user to open new file
 void open_file(GtkWidget *widget, gpointer data) {
     GtkWidget *dialog;
     GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(text_view));
@@ -102,18 +114,20 @@ void open_file(GtkWidget *widget, gpointer data) {
     gtk_widget_destroy(dialog);
 }
 
+// prompt user to save file
+// TODO: if a user opens a file then makes changes, this should just directly write to the file
 void save_file(GtkWidget *widget, gpointer data) {
     GtkWidget *dialog;
     GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(text_view));
 
     dialog = gtk_file_chooser_dialog_new(
-        "Save File", 
-        GTK_WINDOW(data), 
-        GTK_FILE_CHOOSER_ACTION_SAVE, 
-        "_Cancel", 
-        GTK_RESPONSE_CANCEL, 
-        "_Save", 
-        GTK_RESPONSE_ACCEPT, 
+        "Save File",
+        GTK_WINDOW(data),
+        GTK_FILE_CHOOSER_ACTION_SAVE,
+        "_Cancel",
+        GTK_RESPONSE_CANCEL,
+        "_Save",
+        GTK_RESPONSE_ACCEPT,
         NULL
     );
 
@@ -138,10 +152,12 @@ void save_file(GtkWidget *widget, gpointer data) {
     gtk_widget_destroy(dialog);
 }
 
+// wrapper for gtk_main_quit triggered from events
 void quit_app(GtkWidget *widget, gpointer data) {
     gtk_main_quit();
 }
 
+// wrapper for applying font tags
 void apply_font_tag_to_buffer() {
     GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(text_view));
     GtkTextIter start, end;
@@ -151,6 +167,7 @@ void apply_font_tag_to_buffer() {
     gtk_text_buffer_apply_tag(buffer, font_tag, &start, &end);
 }
 
+// update bottom label text that includes character & line number and font size
 void update_label_text() {
     GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(text_view));
 
@@ -159,7 +176,7 @@ void update_label_text() {
     gtk_text_buffer_get_end_iter(buffer, &end);
 
     gchar *text = gtk_text_buffer_get_text(buffer, &start, &end, FALSE);
-    
+
     int char_count = g_utf8_strlen(text, -1);
     int line_count = gtk_text_iter_get_line(&end) + 1;
 
@@ -170,6 +187,7 @@ void update_label_text() {
     g_free(info);
 }
 
+// update match count labels for find & replace
 void update_match_label() {
     if (search_matches) {
         int total = search_matches->len / 2;
@@ -187,6 +205,8 @@ void update_match_label() {
     }
 }
 
+// update font size
+// done for zooming in & out (since it's just changing font size)
 void update_font_size() {
     gchar *font_str = g_strdup_printf("Monospace %d", current_font_size);
 
@@ -197,6 +217,7 @@ void update_font_size() {
     update_label_text();
 }
 
+// zoom in wrapper
 void zoom_in(GtkWidget *widget, gpointer data) {
     if (current_font_size < max_font_size) {
         current_font_size += 1;
@@ -204,6 +225,7 @@ void zoom_in(GtkWidget *widget, gpointer data) {
     }
 }
 
+// zoom out wrapper
 void zoom_out(GtkWidget *widget, gpointer data) {
     if (current_font_size > min_font_size) {
         current_font_size -= 1;
@@ -211,6 +233,7 @@ void zoom_out(GtkWidget *widget, gpointer data) {
     }
 }
 
+// restore scroll position
 gboolean restore_scroll_position(gpointer data) {
     ScrollState *scroll = (ScrollState *)data;
     gtk_adjustment_set_value(scroll->vadj, scroll->vscroll);
@@ -223,6 +246,8 @@ void free_undo_stack(GList *stack) {
     g_list_free_full(stack, (GDestroyNotify)g_free);
 }
 
+// add a new undo state to the list of undo states
+// TODO: make this less memory intensive (ie. save state as changes to previous state)
 void push_undo_state() {
     if (undoing || redoing) return;
 
@@ -248,6 +273,7 @@ void push_undo_state() {
     }
 }
 
+// restore an undo state from before
 void restore_undo_state(UndoState *state) {
     GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(text_view));
 
@@ -258,20 +284,18 @@ void restore_undo_state(UndoState *state) {
     gdouble vscroll = gtk_adjustment_get_value(vadj);
     gdouble hscroll = gtk_adjustment_get_value(hadj);
 
-    // Set text
     gtk_text_buffer_set_text(buffer, state->text, -1);
 
-    // Save scroll info to struct
     ScrollState *scroll = g_new(ScrollState, 1);
     scroll->vadj = vadj;
     scroll->hadj = hadj;
     scroll->vscroll = vscroll;
     scroll->hscroll = hscroll;
 
-    // Restore scroll after buffer layout
     g_idle_add(restore_scroll_position, scroll);
 }
 
+// undo functionality
 void undo() {
     if (!undo_stack || !undo_stack->next) return;
     undoing = TRUE;
@@ -286,6 +310,7 @@ void undo() {
     undoing = FALSE;
 }
 
+// redo functionality
 void redo() {
     if (!redo_stack) return;
     redoing = TRUE;
@@ -299,6 +324,9 @@ void redo() {
     redoing = FALSE;
 }
 
+// some necessary stuff like saving undo state
+// GTK 3 for some reason making changes to font size doesn't
+// keep when adding text so updating font size required
 void on_text_changed(GtkTextBuffer *buffer, gpointer user_data) {
     if (!undoing && !redoing) {
         g_list_free_full(redo_stack, (GDestroyNotify)g_free);
@@ -310,6 +338,7 @@ void on_text_changed(GtkTextBuffer *buffer, gpointer user_data) {
     update_font_size();
 }
 
+// clear highlights from find & replace
 void clear_search_highlights() {
     if (!search_matches) return;
 
@@ -328,6 +357,7 @@ void clear_search_highlights() {
     current_match_index = -1;
 }
 
+// get match from index
 void select_match(int index) {
     if (!search_matches || search_matches->len < 2 || index < 0)
         return;
@@ -346,12 +376,14 @@ void select_match(int index) {
     update_match_label();
 }
 
+// get case sensitive setting
 gboolean get_case_sensitive_setting() {
     return gtk_widget_is_visible(replace_bar)
         ? gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(replace_case_checkbox))
         : gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(case_checkbox));
 }
 
+// change max undo limit
 void on_set_undo_limit_activate(GtkWidget *widget, gpointer data) {
     GtkWidget *dialog = gtk_dialog_new_with_buttons(
         "Set Max Undo History",
@@ -370,7 +402,7 @@ void on_set_undo_limit_activate(GtkWidget *widget, gpointer data) {
 
     if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT) {
         max_undo_history = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(spin));
-        
+
         if (g_list_length(undo_stack) > max_undo_history) {
             GList *last_allowed = g_list_nth(undo_stack, max_undo_history - 1);
             GList *excess = last_allowed->next;
@@ -382,10 +414,12 @@ void on_set_undo_limit_activate(GtkWidget *widget, gpointer data) {
     gtk_widget_destroy(dialog);
 }
 
+// update search colors
 void on_search_activate(GtkEntry *entry, gpointer user_data) {
     GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(text_view));
     GtkTextIter start, match_start, match_end;
 
+    // get the search text
     const gchar *search_text = NULL;
     if (gtk_widget_is_visible(replace_bar)) {
         search_text = gtk_entry_get_text(GTK_ENTRY(replace_find_entry));
@@ -405,6 +439,7 @@ void on_search_activate(GtkEntry *entry, gpointer user_data) {
     gtk_text_buffer_get_start_iter(buffer, &start);
     search_matches = g_array_new(FALSE, FALSE, sizeof(GtkTextIter));
 
+    // get text start & end and color it
     while (!gtk_text_iter_is_end(&start)) {
         GtkTextIter tmp = start;
         GtkTextIter end;
@@ -489,7 +524,10 @@ void show_replace_bar() {
     on_search_activate(NULL, NULL);
 }
 
+// keybinds
 gboolean on_key_press(GtkWidget *widget, GdkEventKey *event, gpointer user_data) {
+
+    // non-ctrl keybinds
     switch (event->keyval) {
         case GDK_KEY_Escape:
             gtk_widget_hide(search_bar);
@@ -499,6 +537,7 @@ gboolean on_key_press(GtkWidget *widget, GdkEventKey *event, gpointer user_data)
             return TRUE;
     }
 
+    // ctrl keybinds
     if (event->state & GDK_CONTROL_MASK) {
         switch (event->keyval) {
             case GDK_KEY_plus:
@@ -541,17 +580,19 @@ gboolean on_key_press(GtkWidget *widget, GdkEventKey *event, gpointer user_data)
         }
     }
 
+    // moving match index based on enter key press
+    // and whether or not shift is held
     if (gtk_widget_has_focus(search_entry)) {
         if (event->keyval == GDK_KEY_Return || event->keyval == GDK_KEY_KP_Enter) {
             if (search_matches && search_matches->len > 0) {
                 int total_matches = search_matches->len / 2;
-            
+
                 if (event->state & GDK_SHIFT_MASK) {
                     on_find_next_clicked(NULL, NULL);
                 } else {
                     on_find_prev_clicked(NULL, NULL);
                 }
-            
+
                 return TRUE;
             }
         }
@@ -560,12 +601,14 @@ gboolean on_key_press(GtkWidget *widget, GdkEventKey *event, gpointer user_data)
     return FALSE;
 }
 
+// both for find & replace
 gboolean on_search_entry_text_changed() {
     clear_search_highlights();
     on_search_activate(NULL, NULL);
     return TRUE;
 }
 
+// replace just one match with text from replace_with_entry
 void on_replace_one_clicked(GtkButton *button, gpointer user_data) {
     if (!search_matches || search_matches->len == 0 || current_match_index < 0) return;
 
@@ -583,6 +626,7 @@ void on_replace_one_clicked(GtkButton *button, gpointer user_data) {
     on_search_activate(NULL, NULL);
 }
 
+// replace all matches with text from replace_with_entry
 void on_replace_all_clicked(GtkButton *button, gpointer user_data) {
     GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(text_view));
 
@@ -622,6 +666,112 @@ void on_replace_all_clicked(GtkButton *button, gpointer user_data) {
     on_search_activate(NULL, NULL);
 }
 
+// prompt user to select a file where then
+// itll insert the name of said file (including file extension) to where the cursor position is
+void on_insert_file_name_activate(GtkWidget *widget, gpointer data) {
+    GtkWidget *dialog = gtk_file_chooser_dialog_new(
+        "Insert File Name",
+        GTK_WINDOW(window),
+        GTK_FILE_CHOOSER_ACTION_OPEN,
+        "_Cancel", GTK_RESPONSE_CANCEL,
+        "_Insert", GTK_RESPONSE_ACCEPT,
+        NULL
+    );
+
+    if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT) {
+        char *filepath = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));
+        char *basename = g_path_get_basename(filepath);
+
+        GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(text_view));
+        GtkTextIter cursor;
+        gtk_text_buffer_get_iter_at_mark(buffer, &cursor,
+            gtk_text_buffer_get_insert(buffer));
+        gtk_text_buffer_insert(buffer, &cursor, basename, -1);
+
+        g_free(filepath);
+        g_free(basename);
+    }
+
+    gtk_widget_destroy(dialog);
+}
+
+// prompt user to select a file where then
+// itll insert the path to the file (including name & file extension)
+void on_insert_file_path_activate(GtkWidget *widget, gpointer data) {
+    GtkWidget *dialog = gtk_file_chooser_dialog_new(
+        "Select File",
+        GTK_WINDOW(window),
+        GTK_FILE_CHOOSER_ACTION_OPEN,
+        "_Cancel", GTK_RESPONSE_CANCEL,
+        "_Insert", GTK_RESPONSE_ACCEPT,
+        NULL
+    );
+
+    if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT) {
+        char *filepath = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));
+
+        if (filepath) {
+            GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(text_view));
+            GtkTextIter cursor;
+            gtk_text_buffer_get_iter_at_mark(buffer, &cursor,
+                gtk_text_buffer_get_insert(buffer));
+            gtk_text_buffer_insert(buffer, &cursor, filepath, -1);
+            g_free(filepath);
+        }
+    }
+
+    gtk_widget_destroy(dialog);
+}
+
+// prompts the user to pick a specific date format
+// then gets the current time, formats it, and inserts it
+void on_insert_current_date_activated(GtkWidget *widget, gpointer data) {
+    GtkWidget *dialog = gtk_dialog_new_with_buttons(
+        "Insert Current Date",
+        GTK_WINDOW(window),
+        (GtkDialogFlags)(GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT),
+        "_Cancel", GTK_RESPONSE_CANCEL,
+        "_Insert", GTK_RESPONSE_ACCEPT,
+        NULL
+    );
+
+    GtkWidget *content_area = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+    GtkWidget *combo = gtk_combo_box_text_new();
+
+    const int num_date_formats = sizeof(date_formats) / sizeof(date_formats[0]);
+
+    time_t now = time(NULL);
+    struct tm *local = localtime(&now);
+    gchar preview[256];
+
+    for (int i = 0; i < num_date_formats; ++i) {
+        strftime(preview, sizeof(preview), date_formats[i], local);
+        gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(combo), date_formats[i], preview);
+    }
+
+    gtk_combo_box_set_active(GTK_COMBO_BOX(combo), 1);
+
+    gtk_container_add(GTK_CONTAINER(content_area), combo);
+    gtk_widget_show_all(dialog);
+
+    if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT) {
+        const gchar *format = gtk_combo_box_get_active_id(GTK_COMBO_BOX(combo));
+
+        if (format) {
+            gchar buffer[256];
+            strftime(buffer, sizeof(buffer), format, local);
+
+            GtkTextBuffer *text_buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(text_view));
+            GtkTextIter cursor;
+            gtk_text_buffer_get_iter_at_mark(text_buffer, &cursor,
+                gtk_text_buffer_get_insert(text_buffer));
+            gtk_text_buffer_insert(text_buffer, &cursor, buffer, -1);
+        }
+    }
+
+    gtk_widget_destroy(dialog);
+}
+
 int main(int argc, char *argv[]) {
     gtk_init(&argc, &argv);
 
@@ -638,8 +788,8 @@ int main(int argc, char *argv[]) {
 
     // file dropdown
     GtkWidget *file_menu = gtk_menu_new();
-
     GtkWidget *file_item = gtk_menu_item_new_with_label("File");
+
     GtkWidget *new_item = gtk_menu_item_new_with_label("New");
     GtkWidget *open_item = gtk_menu_item_new_with_label("Open");
     GtkWidget *save_item = gtk_menu_item_new_with_label("Save");
@@ -663,21 +813,31 @@ int main(int argc, char *argv[]) {
 
     GtkWidget *undo_item = gtk_menu_item_new_with_label("Undo");
     GtkWidget *redo_item = gtk_menu_item_new_with_label("Redo");
+    GtkWidget *edit_separator_1 = gtk_separator_menu_item_new();
     GtkWidget *search_button = gtk_menu_item_new_with_label("Find");
     GtkWidget *replace_button = gtk_menu_item_new_with_label("Replace");
-    GtkWidget *set_undo_limit_item = gtk_menu_item_new_with_label("Set Max Undo History...");
+    GtkWidget *edit_separator_2 = gtk_separator_menu_item_new();
+    GtkWidget *insert_file_name_item = gtk_menu_item_new_with_label("Insert File Name");
+    GtkWidget *insert_file_path_item = gtk_menu_item_new_with_label("Insert File Path");
+    GtkWidget *insert_current_date = gtk_menu_item_new_with_label("Insert Current Date");
 
     g_signal_connect(undo_item, "activate", G_CALLBACK(undo), NULL);
     g_signal_connect(redo_item, "activate", G_CALLBACK(redo), NULL);
     g_signal_connect(search_button, "activate", G_CALLBACK(show_search_bar), NULL);
     g_signal_connect(replace_button, "activate", G_CALLBACK(show_replace_bar), NULL);
-    g_signal_connect(set_undo_limit_item, "activate", G_CALLBACK(on_set_undo_limit_activate), NULL);
+    g_signal_connect(insert_file_name_item, "activate", G_CALLBACK(on_insert_file_name_activate), NULL);
+    g_signal_connect(insert_file_path_item, "activate", G_CALLBACK(on_insert_file_path_activate), NULL);
+    g_signal_connect(insert_current_date, "activate", G_CALLBACK(on_insert_current_date_activated), NULL);
 
     gtk_menu_shell_append(GTK_MENU_SHELL(edit_menu), undo_item);
     gtk_menu_shell_append(GTK_MENU_SHELL(edit_menu), redo_item);
+    gtk_menu_shell_append(GTK_MENU_SHELL(edit_menu), edit_separator_1);
     gtk_menu_shell_append(GTK_MENU_SHELL(edit_menu), search_button);
     gtk_menu_shell_append(GTK_MENU_SHELL(edit_menu), replace_button);
-    gtk_menu_shell_append(GTK_MENU_SHELL(edit_menu), set_undo_limit_item);
+    gtk_menu_shell_append(GTK_MENU_SHELL(edit_menu), edit_separator_2);
+    gtk_menu_shell_append(GTK_MENU_SHELL(edit_menu), insert_file_name_item);
+    gtk_menu_shell_append(GTK_MENU_SHELL(edit_menu), insert_file_path_item);
+    gtk_menu_shell_append(GTK_MENU_SHELL(edit_menu), insert_current_date);
     gtk_menu_item_set_submenu(GTK_MENU_ITEM(edit_item), edit_menu);
     gtk_menu_shell_append(GTK_MENU_SHELL(menu_bar), edit_item);
 
@@ -695,6 +855,18 @@ int main(int argc, char *argv[]) {
     gtk_menu_item_set_submenu(GTK_MENU_ITEM(view_item), view_menu);
     gtk_menu_shell_append(GTK_MENU_SHELL(menu_bar), view_item);
 
+    // settings dropdown
+    GtkWidget *settings_menu = gtk_menu_new();
+    GtkWidget *settings_item = gtk_menu_item_new_with_label("Settings");
+
+    GtkWidget *set_undo_limit_item = gtk_menu_item_new_with_label("Set Max Undo History");
+
+    g_signal_connect(set_undo_limit_item, "activate", G_CALLBACK(on_set_undo_limit_activate), NULL);
+
+    gtk_menu_shell_append(GTK_MENU_SHELL(settings_menu), set_undo_limit_item);
+    gtk_menu_item_set_submenu(GTK_MENU_ITEM(settings_item), settings_menu);
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu_bar), settings_item);
+
     // bottom info text
     info_text = gtk_label_new(" Characters: 0  Lines: 1  Text Size: 12");
     gtk_label_set_xalign(GTK_LABEL(info_text), 0.0);
@@ -702,7 +874,7 @@ int main(int argc, char *argv[]) {
     // scrolling for text view
     GtkWidget *scrolled_window = gtk_scrolled_window_new(NULL, NULL);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled_window), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
-    
+
     // text view
     text_view = gtk_text_view_new();
     GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(text_view));
@@ -736,8 +908,8 @@ int main(int argc, char *argv[]) {
     find_prev_button = gtk_button_new_with_label("←");
     find_next_button = gtk_button_new_with_label("→");
 
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(case_checkbox), TRUE);    
-    gtk_entry_set_placeholder_text(GTK_ENTRY(search_entry), "Find...");   
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(case_checkbox), TRUE);
+    gtk_entry_set_placeholder_text(GTK_ENTRY(search_entry), "Find...");
 
     g_signal_connect(search_entry, "activate", G_CALLBACK(on_search_activate), NULL);
     g_signal_connect(search_entry, "changed", G_CALLBACK(on_search_entry_text_changed), NULL);
@@ -796,6 +968,7 @@ int main(int argc, char *argv[]) {
     update_label_text();
     gtk_widget_show_all(window);
 
+    // not a fan of this, but it's necessary
     gtk_widget_hide(search_bar);
     gtk_widget_hide(replace_bar);
 
