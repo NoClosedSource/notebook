@@ -15,6 +15,11 @@ Notebook is a text editor created in C++ intended for users who don't need anyth
 - Searching with Ctrl + F
 - Replacing with Ctrl + G
 - Zooming in & out with Ctrl + Plus/Minus
+- Inserting the current date in various formats
+
+# Dependencies
+These are required for running Notebook
+- GTK 3.0
 
 # Installation
 Here's how to go about installing Notebook
